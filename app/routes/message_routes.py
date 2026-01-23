@@ -7,7 +7,7 @@ from datetime import datetime
 message_bp = Blueprint('messages', __name__)
 
 def is_admin(jwt_claims):
-    user_type = jwt_claims.get('user_type', '')
+    user_type = jwt_claims.get('user_type', 'user').lower()
     return user_type in ['admin', 'superadmin', 'super_admin']
 
 @message_bp.route('', methods=['POST'])
@@ -42,7 +42,7 @@ def send_message():
             userId=data.get('userId'),
             email=data['email'],
             message=data['message'],
-            status=data.get('status', 'pending')
+            status='pending'
         )
         
         if 'images' in data:

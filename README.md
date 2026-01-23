@@ -40,8 +40,7 @@ Send a new message (contact us).
   "message": "Your message here",
   "userId": "optional-user-id",
   "images": ["url1", "url2"],
-  "attachments": ["url1", "url2"],
-  "status": "pending"
+  "attachments": ["url1", "url2"]
 }
 ```
 
