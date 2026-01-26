@@ -1,109 +1,94 @@
-from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
-from app.models import db
-from app.models.message import Message
-from datetime import datetime
+from flask import request, jsonify
+from app.routes import message_bp
+from app.services.message_service import MessageService
+from app.utils.decorators import handle_exceptions, require_auth, require_admin
 
-message_bp = Blueprint('messages', __name__)
+message_service = MessageService()
 
-def is_admin(jwt_claims):
-    user_type = jwt_claims.get('user_type', 'user').lower()
-    return user_type in ['admin', 'superadmin', 'super_admin']
 
 @message_bp.route('', methods=['POST'])
-def send_message():
-    """
-    Expected: JSON with 'email', 'message', optional 'userId', 'images', 'attachments'
-    Returns: JSON with created message
-    """
+@handle_exceptions
+def create_message():
+    """Create a new contact message (Public endpoint)"""
     data = request.get_json()
     
-    if not data:
-        return jsonify({'message': 'Request body is required'}), 400
+    # Validate required fields
+    if not data.get('email'):
+        return jsonify({'error': 'Email is required'}), 400
+    if not data.get('subject'):
+        return jsonify({'error': 'Subject is required'}), 400
+    if not data.get('message'):
+        return jsonify({'error': 'Message is required'}), 400
     
-    errors = {}
+    # Get user ID if logged in
+    user_id = request.headers.get('X-User-Id')
     
-    if 'email' not in data or not data['email']:
-        errors['email'] = 'Email is required'
-    elif len(data['email']) > 100:
-        errors['email'] = 'Email must be at most 100 characters'
-    
-    if 'message' not in data or not data['message']:
-        errors['message'] = 'Message is required'
-    
-    if errors:
-        return jsonify({
-            'message': 'Validation failed',
-            'details': errors
-        }), 400
-    
-    try:
-        message = Message(
-            userId=data.get('userId'),
-            email=data['email'],
-            message=data['message'],
-            status='pending'
-        )
-        
-        if 'images' in data:
-            message.set_images(data['images'])
-        
-        if 'attachments' in data:
-            message.set_attachments(data['attachments'])
-        
-        db.session.add(message)
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Message sent successfully',
-            'data': message.to_dict()
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({
-            'message': 'Failed to send message',
-            'error': str(e)
-        }), 500
-
-@message_bp.route('', methods=['GET'])
-@jwt_required()
-def get_messages():
-    """
-    Expected: Query params: page, per_page, status (optional)
-    Returns: JSON with messages list and pagination
-    """
-    jwt_claims = get_jwt()
-    current_user_id = get_jwt_identity()
-    
-    if not is_admin(jwt_claims):
-        return jsonify({'message': 'Admin access required'}), 403
-    
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
-    status_filter = request.args.get('status', type=str)
-    
-    per_page = min(per_page, 100)
-    
-    query = Message.query
-    
-    if status_filter:
-        query = query.filter(Message.status == status_filter)
-    
-    query = query.order_by(Message.dateCreated.desc())
-    
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-    
-    messages = [msg.to_dict() for msg in pagination.items]
+    message = message_service.create_message(
+        user_id=int(user_id) if user_id else None,
+        email=data.get('email'),
+        subject=data.get('subject'),
+        message=data.get('message')
+    )
     
     return jsonify({
-        'messages': messages,
-        'pagination': {
-            'page': pagination.page,
-            'per_page': pagination.per_page,
-            'total': pagination.total,
-            'pages': pagination.pages,
-            'has_next': pagination.has_next,
-            'has_prev': pagination.has_prev
-        }
+        'message': 'Message sent successfully',
+        'data': message.to_dict()
+    }), 201
+
+
+@message_bp.route('', methods=['GET'])
+@handle_exceptions
+@require_auth
+@require_admin
+def get_all_messages():
+    """Get all messages (Admin only)"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    status = request.args.get('status')  # 'open', 'closed', or None for all
+    
+    messages, total = message_service.get_all_messages(page, per_page, status)
+    
+    return jsonify({
+        'messages': [m.to_dict() for m in messages],
+        'total': total,
+        'page': page,
+        'perPage': per_page,
+        'totalPages': (total + per_page - 1) // per_page
+    }), 200
+
+
+@message_bp.route('/<int:message_id>', methods=['GET'])
+@handle_exceptions
+@require_auth
+@require_admin
+def get_message(message_id):
+    """Get a specific message (Admin only)"""
+    message = message_service.get_message_by_id(message_id)
+    
+    if not message:
+        return jsonify({'error': 'Message not found'}), 404
+    
+    return jsonify({'message': message.to_dict()}), 200
+
+
+@message_bp.route('/<int:message_id>/status', methods=['PUT'])
+@handle_exceptions
+@require_auth
+@require_admin
+def update_message_status(message_id):
+    """Update message status (Admin only)"""
+    data = request.get_json()
+    new_status = data.get('status')
+    
+    if new_status not in ['open', 'closed']:
+        return jsonify({'error': 'Invalid status. Must be "open" or "closed"'}), 400
+    
+    message = message_service.update_status(message_id, new_status)
+    
+    if not message:
+        return jsonify({'error': 'Message not found'}), 404
+    
+    return jsonify({
+        'message': 'Status updated successfully',
+        'data': message.to_dict()
     }), 200
