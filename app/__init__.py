@@ -1,20 +1,35 @@
-import os
 from flask import Flask
+from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager
-from config import Config
-from app.models import db
+
+db = SQLAlchemy()
+
 
 def create_app():
     app = Flask(__name__)
-    app.config.from_object(Config)
+    
+    # Load configuration
+    app.config.from_object('app.config.Config')
+    
+    # Initialize extensions
     db.init_app(app)
-    JWTManager(app)
-
+    CORS(app, resources={r"/*": {"origins": "*"}})
+    
+    # Import and register blueprints
+    from app.routes import message_bp
+    app.register_blueprint(message_bp, url_prefix='/messages')
+    
+    # Register error handlers
+    from app.utils.error_handlers import register_error_handlers
+    register_error_handlers(app)
+    
+    # Create tables
     with app.app_context():
         db.create_all()
-
-    from app.routes.message_routes import message_bp
-    app.register_blueprint(message_bp, url_prefix='/api/messages')
+    
+    # Health check endpoint
+    @app.route('/health')
+    def health():
+        return {'status': 'healthy', 'service': 'message-service'}
     
     return app

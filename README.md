@@ -1,121 +1,333 @@
 # Message Service
 
-Message Service is a Flask-based microservice that handles contact us functionality for the Forum Project. It stores and retrieves messages from users.
+The Message Service is a microservice responsible for managing contact messages from users. It provides functionality for users to submit contact messages and for administrators to view and manage these messages.
+
+## Features
+
+- **Create Contact Messages**: Public endpoint for users to submit contact messages (logged in or anonymous)
+- **View Messages**: Admin-only endpoint to retrieve all messages with pagination
+- **Message Status Management**: Admin-only endpoint to update message status (open/closed)
+- **Pagination Support**: Efficient message retrieval with pagination
+- **Status Filtering**: Filter messages by status (open/closed)
+- **Database Persistence**: MySQL database for message storage
 
 ## Tech Stack
 
-- **Framework**: Flask 3.0
-- **ORM**: Flask-SQLAlchemy
-- **Database**: MySQL 8.0
-- **Authentication**: Flask-JWT-Extended
+- **Framework**: Flask 3.0.0
+- **ORM**: Flask-SQLAlchemy 3.1.1
+- **Database**: MySQL (via PyMySQL 1.1.0)
+- **Authentication**: JWT token validation via headers
+- **CORS**: Flask-Cors 4.0.0
 
 ## Project Structure
 
 ```
 message-service/
 ├── app/
-│   ├── __init__.py              # Flask application factory
-│   ├── config.py                # Configuration (database, JWT, etc.)
+│   ├── __init__.py          # Flask app initialization
+│   ├── config.py            # Configuration management
 │   ├── models/
-│   │   ├── __init__.py          # SQLAlchemy db instance
-│   │   └── message.py           # Message model
-│   └── routes/
+│   │   ├── __init__.py
+│   │   └── message.py       # Message data model
+│   ├── routes/
+│   │   ├── __init__.py
+│   │   └── message_routes.py # Message API endpoints
+│   ├── services/
+│   │   ├── __init__.py
+│   │   └── message_service.py # Message business logic
+│   └── utils/
 │       ├── __init__.py
-│       └── message_routes.py   # Message endpoints
-├── run.py                       # Application entry point
-├── requirements.txt             # Python dependencies
-└── README.md
+│       ├── decorators.py     # Decorators (auth, exception handling)
+│       └── error_handlers.py # Error handlers
+├── Dockerfile               # Docker image build file
+├── requirements.txt         # Python dependencies
+├── run.py                   # Application entry point
+└── README.md                # Project documentation
 ```
+
+## Environment Variables
+
+Create a `.env` file and set the following environment variables:
+
+```env
+# Flask settings
+SECRET_KEY=your-secret-key-here
+FLASK_ENV=development
+
+# Database settings
+DATABASE_URL=mysql+pymysql://root:root@localhost:3306/message_db
+
+# JWT settings (for token validation)
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+```
+
+## Installation and Running
+
+### Local Development
+
+1. **Install Dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Set Environment Variables**
+   Create a `.env` file and configure the required environment variables.
+
+3. **Set Up Database**
+   Ensure MySQL is running and create the database:
+   ```sql
+   CREATE DATABASE message_db;
+   ```
+
+4. **Run the Application**
+   ```bash
+   python run.py
+   ```
+   
+   The service runs on `http://localhost:5004` by default.
+
+### Using Docker
+
+1. **Build Docker Image**
+   ```bash
+   docker build -t message-service .
+   ```
+
+2. **Run Container**
+   ```bash
+   docker run -p 5004:5004 --env-file .env message-service
+   ```
+
+## Database Schema
+
+### Messages Table
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `message_id` | INTEGER | Primary key, auto-increment |
+| `user_id` | INTEGER | User ID (nullable for anonymous messages) |
+| `email` | VARCHAR(100) | Contact email address |
+| `subject` | VARCHAR(200) | Message subject |
+| `message` | TEXT | Message content |
+| `date_created` | DATETIME | Timestamp of message creation |
+| `status` | ENUM('open', 'closed') | Message status (default: 'open') |
 
 ## API Endpoints
 
-### POST /api/messages
+### 1. Create Contact Message
+**POST** `/messages`
 
-Send a new message (contact us).
+Public endpoint - no authentication required.
 
-**Request:**
+Request Body:
 ```json
 {
   "email": "user@example.com",
-  "message": "Your message here",
-  "userId": "optional-user-id",
-  "images": ["url1", "url2"],
-  "attachments": ["url1", "url2"]
+  "subject": "Question about the service",
+  "message": "I have a question about..."
 }
 ```
 
-**Response (Success - 201):**
+Optional Header (if user is logged in):
+```
+X-User-Id: 123
+```
+
+Success Response (201):
 ```json
 {
   "message": "Message sent successfully",
   "data": {
-    "messageId": "uuid",
-    "userId": "user-id",
+    "messageId": 1,
+    "userId": 123,
     "email": "user@example.com",
-    "message": "Your message here",
-    "dateCreated": "2024-01-01T00:00:00",
-    "status": "pending",
-    "images": ["url1", "url2"],
-    "attachments": ["url1", "url2"]
+    "subject": "Question about the service",
+    "message": "I have a question about...",
+    "dateCreated": "2026-01-25T10:30:00",
+    "status": "open"
   }
 }
 ```
 
-### GET /api/messages
+### 2. Get All Messages
+**GET** `/messages`
 
-Get inbox messages (Admin only).
+Admin only - requires authentication and admin role.
 
-**Query Parameters:**
-- `page` (default: 1)
-- `per_page` (default: 20, max: 100)
-- `status` (optional: filter by status)
+Query Parameters:
+- `page` (optional): Page number (default: 1)
+- `per_page` (optional): Items per page (default: 20)
+- `status` (optional): Filter by status ('open' or 'closed')
 
-**Response (Success - 200):**
+Request Headers:
+```
+Authorization: Bearer <token>
+X-User-Id: 123
+X-User-Type: admin
+```
+
+Success Response (200):
 ```json
 {
-  "messages": [...],
-  "pagination": {
-    "page": 1,
-    "per_page": 20,
-    "total": 100,
-    "pages": 5,
-    "has_next": true,
-    "has_prev": false
+  "messages": [
+    {
+      "messageId": 1,
+      "userId": 123,
+      "email": "user@example.com",
+      "subject": "Question about the service",
+      "message": "I have a question about...",
+      "dateCreated": "2026-01-25T10:30:00",
+      "status": "open"
+    }
+  ],
+  "total": 50,
+  "page": 1,
+  "perPage": 20,
+  "totalPages": 3
+}
+```
+
+### 3. Get Message by ID
+**GET** `/messages/{message_id}`
+
+Admin only - requires authentication and admin role.
+
+Request Headers:
+```
+Authorization: Bearer <token>
+X-User-Id: 123
+X-User-Type: admin
+```
+
+Success Response (200):
+```json
+{
+  "message": {
+    "messageId": 1,
+    "userId": 123,
+    "email": "user@example.com",
+    "subject": "Question about the service",
+    "message": "I have a question about...",
+    "dateCreated": "2026-01-25T10:30:00",
+    "status": "open"
   }
 }
 ```
 
-## Database Schema
+### 4. Update Message Status
+**PUT** `/messages/{message_id}/status`
 
-### Message Table
+Admin only - requires authentication and admin role.
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| messageId | VARCHAR(36) | PRIMARY KEY | UUID, auto-generated |
-| userId | VARCHAR(36) | NULLABLE | User ID if logged in |
-| email | VARCHAR(100) | NOT NULL | Sender's email |
-| message | TEXT | NOT NULL | Message content |
-| dateCreated | DATETIME | NOT NULL | Creation timestamp |
-| status | VARCHAR(50) | NOT NULL, DEFAULT 'pending' | Message status |
-| images | TEXT | NULLABLE | JSON array of image URLs |
-| attachments | TEXT | NULLABLE | JSON array of attachment URLs |
-
-## Usage
-
-1. Install dependencies:
-```bash
-pip install -r requirements.txt
+Request Headers:
+```
+Authorization: Bearer <token>
+X-User-Id: 123
+X-User-Type: admin
 ```
 
-2. Set environment variables:
-```bash
-export DATABASE_URI=mysql+pymysql://root:root@localhost:3306/forum_message_db
-export JWT_SECRET=your-secret-key
+Request Body:
+```json
+{
+  "status": "closed"
+}
 ```
 
-3. Run the service:
-```bash
-python run.py
+Success Response (200):
+```json
+{
+  "message": "Status updated successfully",
+  "data": {
+    "messageId": 1,
+    "userId": 123,
+    "email": "user@example.com",
+    "subject": "Question about the service",
+    "message": "I have a question about...",
+    "dateCreated": "2026-01-25T10:30:00",
+    "status": "closed"
+  }
+}
 ```
 
-The service will run on `http://0.0.0.0:5004`
+### 5. Health Check
+**GET** `/health`
+
+Response:
+```json
+{
+  "status": "healthy",
+  "service": "message-service"
+}
+```
+
+## Authentication
+
+The service uses header-based authentication for protected endpoints:
+
+- **X-User-Id**: User ID from JWT token (set by API gateway or auth middleware)
+- **X-User-Type**: User type/role (must be 'admin' or 'super_admin' for admin endpoints)
+
+The service expects these headers to be set by an API gateway or authentication middleware that validates JWT tokens.
+
+## Authorization
+
+- **Public Endpoints**: `/messages` (POST) - Anyone can create messages
+- **Admin Endpoints**: All GET and PUT endpoints require admin or super_admin role
+
+## Error Handling
+
+The service handles the following errors:
+- **400**: Bad Request (validation failures, invalid status values)
+- **401**: Unauthorized (authentication required)
+- **403**: Forbidden (admin access required)
+- **404**: Not Found (message not found)
+- **500**: Internal Server Error
+
+## Message Status
+
+Messages have two possible statuses:
+- **open**: New or unprocessed message (default)
+- **closed**: Message has been processed or resolved
+
+## Development Guide
+
+### Code Structure
+- **models/**: Database models using SQLAlchemy
+- **routes/**: API endpoint definitions
+- **services/**: Business logic
+- **utils/**: Utility functions (decorators, error handlers)
+
+### Database Migrations
+
+The application automatically creates tables on startup using `db.create_all()`. For production, consider using Flask-Migrate for proper database migrations.
+
+### Logging
+
+The application uses Python's `logging` module to record logs. Log levels and formats can be configured in `run.py`.
+
+### Testing
+
+To run tests:
+```bash
+# If test files exist
+pytest
+```
+
+## Security Considerations
+
+1. **Input Validation**: All required fields are validated before processing
+2. **SQL Injection**: SQLAlchemy ORM prevents SQL injection attacks
+3. **Authentication**: Admin endpoints require proper authentication headers
+4. **CORS**: Configured to allow all origins in development. Restrict in production.
+
+## Database Connection
+
+The service uses SQLAlchemy with connection pooling:
+- `pool_recycle`: 300 seconds
+- `pool_pre_ping`: Enabled for connection health checks
+
+Ensure your MySQL server is configured to handle the expected connection load.
+
+## License
+
+Refer to the `LICENSE` file for license information.
