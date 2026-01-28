@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from app import db
 
 
@@ -20,12 +20,18 @@ class Message(db.Model):
     
     def to_dict(self):
         """Convert message to dictionary"""
+        date_created = self.date_created
+        if date_created:
+            # Normalize to UTC with explicit offset so clients parse correctly.
+            if date_created.tzinfo is None:
+                date_created = date_created.replace(tzinfo=timezone.utc)
+            date_created = date_created.isoformat()
         return {
             'messageId': self.message_id,
             'userId': self.user_id,
             'email': self.email,
             'subject': self.subject,
             'message': self.message,
-            'dateCreated': self.date_created.isoformat() if self.date_created else None,
+            'dateCreated': date_created if date_created else None,
             'status': self.status
         }
